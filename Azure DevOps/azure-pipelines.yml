@@ -1,0 +1,51 @@
+# Node.js with React
+# Build a Node.js project that uses React.
+# Add steps that analyze code, save build artifacts, deploy, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/languages/javascript
+
+trigger:
+- development
+- master
+
+pr: none
+
+pool:
+  vmImage: ubuntu-latest
+
+variables:
+  isMaster: $[eq(variables['Build.SourceBranch'], 'refs/heads/master')]
+
+steps:
+- task: NodeTool@0
+  inputs:
+    versionSpec: '20.10.0'
+  displayName: 'Install Node.js'
+
+- script: |
+    yarn install
+    if [ "$(isMaster)" == "True" ]; then
+      yarn build:prod
+    else
+      yarn build:development
+    fi
+  displayName: 'yarn install and build'
+
+- task: CopyFiles@2
+  displayName: 'Copy Files to: $(build.artifactstagingdirectory)'
+  inputs:
+    SourceFolder: build
+    TargetFolder: '$(build.artifactstagingdirectory)'
+    CleanTargetFolder: true
+    OverWrite: true
+
+- task: PublishBuildArtifacts@1
+  condition: and(succeeded(), eq(variables.isMaster, false))
+  displayName: 'Publish Artifact: dev build'
+  inputs:
+    ArtifactName: dev build
+
+- task: PublishBuildArtifacts@1
+  condition: and(succeeded(), eq(variables.isMaster, true))
+  displayName: 'Publish Artifact: prod build'
+  inputs:
+    ArtifactName: prod build
