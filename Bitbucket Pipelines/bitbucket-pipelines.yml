@@ -1,0 +1,28 @@
+image: node:10.15.3
+
+pipelines:
+  branches:
+    development:
+      - step:
+          name: Deploy artifacts using SCP to DEV
+          script:
+            - yarn install
+            - yarn build:development
+            - pipe: atlassian/scp-deploy:0.3.3
+              variables:
+                USER: $USER
+                SERVER: $SERVER
+                REMOTE_PATH: "/dev-LoyaltyPortalApp/build"
+                LOCAL_PATH: "build/*"
+    master:
+      - step:
+          name: Deploy artifacts using SCP to PROD
+          script:
+            - yarn install
+            - yarn build:prod
+            - pipe: atlassian/scp-deploy:0.3.3
+              variables:
+                USER: $USER
+                SERVER: $SERVER
+                REMOTE_PATH: "/LoyaltyPortalApp/build"
+                LOCAL_PATH: "build/*"
