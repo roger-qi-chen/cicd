@@ -1,0 +1,23 @@
+version: 0.2
+
+phases:
+  install:
+    runtime-versions:
+      nodejs: 20
+  pre_build:
+    commands:
+      - echo Copying .env...
+      - pwd
+      - aws s3 ls
+      - aws s3 cp s3://app1-env-qa/.env apps/app1/
+
+  build:
+    commands:
+      - echo Install...
+      - pwd
+      - npm --version
+      - npm install -g pnpm@8.10.0
+      - pnpm --version
+      - pnpm install
+      - echo Running...
+      - pnpm run migration
