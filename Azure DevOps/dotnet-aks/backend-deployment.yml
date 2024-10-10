@@ -1,0 +1,23 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: products-backend-deployment # Name of the deployment
+spec:
+  selector:
+    matchLabels:
+      app: productsbackend
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: productsbackend
+    spec:
+      containers:
+      - name: productsbackend
+        image: rogerchenacr.azurecr.io/productservice:latest
+        ports:
+        - containerPort: 80
+        env:
+        - name: ASPNETCORE_URLS
+          value: http://*:80
+---
