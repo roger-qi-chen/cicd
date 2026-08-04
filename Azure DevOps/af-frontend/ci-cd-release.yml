@@ -1,0 +1,59 @@
+trigger:
+  branches:
+    include:
+      - release/*
+  batch: true
+
+name: $(date:yyyyMMdd)$(rev:.r)
+
+pool:
+  vmImage: ubuntu-latest
+
+stages:
+  - stage: CI_STAGING
+    displayName: "CI: Staging"
+    condition: succeeded()
+    jobs:
+      - template: ./templates/_ci.yml
+        parameters:
+        publishArtifacts: ${{ startsWith(replace(variables['Build.SourceBranch'], 'refs/heads/', ''), 'release/') }}
+        artefactDirectoryName: 'drop_staging'
+        apiUrl: 'https://api.staging.pf.test.com/api/'
+        swaggerOpenApiSpecUrl: 'https://api.staging.pf.test.com/swagger/v1/swagger.json'
+        reactEnvironment: 'staging'
+        packagePruneArguments: '--staging'
+
+  - ${{ if startsWith(replace(variables['Build.SourceBranch'], 'refs/heads/', ''), 'release/') }}:
+      - stage: CD_STAGING
+        displayName: "CD: Staging"
+        dependsOn: CI_STAGING
+        condition: succeeded()
+        jobs:
+          - template: ./templates/_cd.yml
+            parameters:
+              environmentName: "Staging"
+              artefactDirectoryName: 'drop_staging'
+              deploymentToken: 'deployment_token_staging'
+
+      - stage: CI_PROD
+        displayName: "CI: Prod"
+        dependsOn: CD_STAGING
+        jobs:
+          - template: ./templates/_ci.yml
+            parameters:
+              publishArtifacts: ${{ startsWith(replace(variables['Build.SourceBranch'], 'refs/heads/', ''), 'release/') }}
+              artefactDirectoryName: 'drop_prod'
+              apiUrl: 'https://api.af.com/api/'
+              swaggerOpenApiSpecUrl: 'https://api.af.com/swagger/v1/swagger.json'
+              reactEnvironment: 'production'
+              packagePruneArguments: '--production'
+
+      - stage: CD_Production
+        displayName: "CD: Production"
+        dependsOn: CI_PROD
+        condition: succeeded()
+        jobs:
+          - template: ./templates/_cd_Prod.yml
+            parameters:
+              environmentName: "Production_Windows_Middleware_Server"
+              artefactDirectoryName: 'drop_prod'

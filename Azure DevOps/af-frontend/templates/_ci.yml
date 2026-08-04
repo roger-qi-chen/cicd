@@ -1,0 +1,161 @@
+parameters:
+  - name: publishArtifacts
+    type: boolean
+    default: false
+  - name: artefactDirectoryName
+    type: string
+  - name: apiUrl
+    type: string
+  - name: swaggerOpenApiSpecUrl
+    type: string
+  - name: reactEnvironment
+    type: string
+  - name: amplitudeApiKey
+    type: string
+    default: ''
+  - name: packagePruneArguments
+    type: string
+
+jobs:
+  - job: Build_${{ parameters.artefactDirectoryName }}
+    variables:
+      - ${{ if ne(parameters.apiUrl, '') }}:
+        - name: API_URL
+          value: ${{ parameters.apiUrl }}
+      - ${{ if ne(parameters.swaggerOpenApiSpecUrl, '') }}:
+        - name: SWAGGER_URL
+          value: ${{ parameters.swaggerOpenApiSpecUrl }}
+      - ${{ if ne(parameters.reactEnvironment, '') }}:
+        - name: REACT_ENV
+          value: ${{ parameters.reactEnvironment }}
+      - ${{ if ne(parameters.amplitudeApiKey, '') }}:
+        - name: AMPLITUDE_API_KEY
+          value: ${{ parameters.amplitudeApiKey }}
+    ${{ if eq(parameters.publishArtifacts, true) }}:
+      displayName: 'Build and Publish ${{ parameters.artefactDirectoryName }}'
+    ${{ if not(eq(parameters.publishArtifacts, true)) }}:
+      displayName: 'Build ${{ parameters.artefactDirectoryName }}'
+    steps:
+      - script: |
+          echo "Branch: $(Build.SourceBranchName)"
+        displayName: 'Show branch name'
+
+      # Increase Node.js memory limit
+      - script: |
+          export NODE_OPTIONS=--max_old_space_size=16384
+          echo 'Increased memory limit for Node.js'
+        displayName: 'Increase Node.js Memory Limit'
+
+      - ${{ if eq(parameters.amplitudeApiKey, '') }}:
+        - ${{ if eq(parameters.reactEnvironment, 'prod') }}:
+          - script: |
+              echo "##vso[task.setvariable variable=KEY_VAULT_NAME]kv-share-prod-aue"
+            displayName: 'Select Key Vault (prod)'
+        - ${{ if ne(parameters.reactEnvironment, 'prod') }}:
+          - script: |
+              echo "##vso[task.setvariable variable=KEY_VAULT_NAME]kv-share-nonprod-aue"
+            displayName: 'Select Key Vault (non-prod)'
+        - task: AzureKeyVault@2
+          displayName: 'Fetch Amplitude key from Key Vault (if not provided)'
+          continueOnError: true
+          inputs:
+            azureSubscription: 'Production Plan (75dcd0c5-9aa4-4e30-b563-b6f98e1b19c1)'
+            KeyVaultName: '$(KEY_VAULT_NAME)'
+            SecretsFilter: 'AMPLITUDE_API_KEY'
+
+      - script: |
+          # Ensure AMPLITUDE_API_KEY variable exists (fallback to empty) and set enable flag
+          if [ -z "$AMPLITUDE_API_KEY" ]; then
+            echo "##vso[task.setvariable variable=AMPLITUDE_API_KEY] "
+            echo "##vso[task.setvariable variable=REACT_APP_AMPLITUDE_ENABLED]false"
+            echo "No Amplitude key found in variables or Key Vault; disabling amplitude."
+          else
+            echo "##vso[task.setvariable variable=REACT_APP_AMPLITUDE_ENABLED]true"
+            echo "Amplitude key found; enabling amplitude."
+          fi
+        displayName: 'Normalize AMPLITUDE_API_KEY and amplitude enable flag'
+
+      # runtime variables for API_URL, SWAGGER_URL, REACT_ENV, AMPLITUDE_API_KEY are defined at job level
+
+      - script: |
+          sed -i 's|REACT_APP_API_URL=API_URL|REACT_APP_API_URL=$(API_URL)|g' .env
+          sed -i 's|REACT_APP_SWAGGER_URL=SWAGGER_URL|REACT_APP_SWAGGER_URL=$(SWAGGER_URL)|g' .env
+          sed -i 's|REACT_APP_ENV=staging|REACT_APP_ENV=$(REACT_ENV)|g' .env
+          if grep -q '^REACT_APP_AMPLITUDE_API_KEY=' .env; then
+            sed -i 's|^REACT_APP_AMPLITUDE_API_KEY=.*|REACT_APP_AMPLITUDE_API_KEY=$(AMPLITUDE_API_KEY)|g' .env
+          else
+            echo "REACT_APP_AMPLITUDE_ENABLED=$(REACT_APP_AMPLITUDE_ENABLED)" >> .env
+            echo 'REACT_APP_AMPLITUDE_API_KEY=$(AMPLITUDE_API_KEY)' >> .env
+          fi
+        displayName: 'Update .env file'
+
+      - bash: |
+          if [ -f extensions.csproj ]
+          then
+            dotnet build extensions.csproj --output ./bin
+          fi
+        displayName: 'Build extensions'
+
+      - task: NodeTool@0
+        displayName: 'Use Node version 19.x'
+        inputs:
+          versionSpec: 19.x
+          checkLatest: true
+
+      - task: Npm@1
+        displayName: 'Install Gulp'
+        inputs:
+          command: custom
+          customCommand: 'install gulp -g'
+
+      - task: DeleteFiles@1
+        inputs:
+          SourceFolder: $(System.DefaultWorkingDirectory)
+          Contents: 'package-lock.json'
+
+      - task: Npm@1
+        displayName: 'Install Application Dependencies'
+        inputs:
+          workingDir: $(System.DefaultWorkingDirectory)
+          customCommand: 'install'
+          command: custom
+          verbose: false
+
+      - task: Bash@3
+        displayName: Check NPM package vulnerabilities
+        inputs:
+          targetType: filePath
+          filePath: .build/cve-check.sh
+          failOnStderr: true
+          verbose: true
+
+      - task: Npm@1
+        displayName: 'Run ''build'' script'
+        inputs:
+          command: custom
+          workingDir: $(System.DefaultWorkingDirectory)
+          verbose: false
+          customCommand: 'run build --max_old_space_size=16384 --if-present'
+
+      - ${{ if eq(parameters.publishArtifacts, true) }}:
+        - task: Npm@1
+          displayName: 'Remove extraneous packages'
+          inputs:
+            command: custom
+            workingDir: '$(System.DefaultWorkingDirectory)'
+            verbose: false
+            customCommand: "prune ${{ parameters.packagePruneArguments }}"
+
+        - task: ArchiveFiles@2
+          displayName: 'Archive files'
+          inputs:
+            rootFolderOrFile: build
+            includeRootFolder: false
+            archiveFile: $(Build.ArtifactStagingDirectory)/frontend.zip
+
+        - task: PublishBuildArtifacts@1
+          displayName: "Publish Artifacts"
+          inputs:
+            PathtoPublish: $(Build.ArtifactStagingDirectory)/frontend.zip
+            ArtifactName: ${{ parameters.artefactDirectoryName }}
+            publishLocation: "Container" # Default and recommended

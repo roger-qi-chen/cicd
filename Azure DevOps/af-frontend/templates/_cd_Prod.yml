@@ -1,0 +1,52 @@
+parameters:
+  - name: environmentName
+    type: string
+  - name: artefactDirectoryName
+    type: string
+
+jobs:
+  - deployment: Deploy_Prod # NB: Cannot be named 'Deploy', and should be unique across all stages of the pipeline
+    displayName: "Deploy to ${{ parameters.environmentName }}"
+    environment:
+      name: ${{ parameters.environmentName }}
+      resourceName: 'prod-msmiddle-agent' # TODO: register and update the name: https://learn.microsoft.com/en-us/azure/devops/pipelines/process/environments-virtual-machines?view=azure-devops&tabs=windows
+      resourceType: virtualMachine
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+          - download: current
+            artifact: "${{ parameters.artefactDirectoryName }}"
+            displayName: "Download Build Artifact (drop)"
+
+          - script: |
+              dir "$(Pipeline.Workspace)\${{ parameters.artefactDirectoryName }}" /s
+            displayName: "Validate Deployment Artifacts exist"
+            condition: succeeded()
+
+          - task: IISWebAppManagementOnMachineGroup@0
+            displayName: 'IIS Web App Manage'
+            inputs:
+              EnableIIS: true
+              IISDeploymentType: 'IISWebsite'
+              ActionIISWebsite: 'CreateOrUpdateWebsite'
+              WebsiteName: 'FRONTEND'
+              WebsitePhysicalPath: 'C:\inetpub\wwwfrontend'
+              WebsitePhysicalPathAuth: 'WebsiteUserPassThrough'
+              CreateOrUpdateAppPoolForWebsite: false
+              ConfigureAuthenticationForWebsite: true
+              AddBinding: false # TODO: AddBinding should be true if you want to add a binding?
+              Bindings: '{"bindings":[{"protocol":"http","ipAddress":"All Unassigned","port":"80","hostname":"","sslThumbprint":"","sniFlag":false}]}'
+              AnonymousAuthenticationForWebsite: true
+              BasicAuthenticationForWebsite: false
+              WindowsAuthenticationForWebsite: false
+            condition: succeeded()
+
+          - task: IISWebAppDeploymentOnMachineGroup@0
+            displayName: 'IIS Web App Deploy'
+            inputs:
+              WebSiteName: 'FRONTEND'
+              TakeAppOfflineFlag: True
+              XmlVariableSubstitution: True
+              Package: '$(Pipeline.Workspace)\${{ parameters.artefactDirectoryName }}\frontend.zip'
+            condition: succeeded()

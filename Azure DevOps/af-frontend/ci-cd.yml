@@ -1,0 +1,114 @@
+trigger:
+  branches:
+    include:
+      - develop
+  batch: true
+
+
+name: $(date:yyyyMMdd)$(rev:.r)
+
+pool:
+  vmImage: ubuntu-latest
+
+stages:
+  - stage: CI
+    displayName: "CI"
+    jobs:
+      - template: ./templates/_ci.yml
+        parameters:
+          publishArtifacts: ${{ eq(variables['Build.SourceBranch'], 'refs/heads/develop') }}
+          artefactDirectoryName: 'drop_dev'
+          apiUrl: 'https://api.dev.pf.test.com/api/'
+          swaggerOpenApiSpecUrl: 'https://api.dev.pf.test.com/swagger/v1/swagger.json'
+          reactEnvironment: 'dev'
+          amplitudeApiKey: '$(amplitude-v3)'
+          packagePruneArguments: '--dev'
+
+  - ${{ if eq(variables['Build.SourceBranch'], 'refs/heads/develop') }}:
+      - stage: CD_Dev
+        displayName: "CD: Dev"
+        dependsOn: CI
+        condition: succeeded()
+        jobs:
+          - template: ./templates/_cd.yml
+            parameters:
+              environmentName: "Dev"
+              artefactDirectoryName: 'drop_dev'
+              deploymentToken: 'deployment_token_dev'
+
+      - stage: CI_STAGING
+        displayName: "CI: Staging"
+        dependsOn: CD_Dev
+        condition: succeeded()
+        jobs:
+          - template: ./templates/_ci.yml
+            parameters:
+              publishArtifacts: ${{ eq(variables['Build.SourceBranch'], 'refs/heads/develop') }}
+              artefactDirectoryName: 'drop_staging'
+              apiUrl: 'https://api.staging.pf.test.com/api/'
+              swaggerOpenApiSpecUrl: 'https://api.staging.pf.test.com/swagger/v1/swagger.json'
+              reactEnvironment: 'staging'
+              amplitudeApiKey: '$(amplitude-v3)'
+              packagePruneArguments: '--staging'
+
+      - stage: CD_STAGING
+        displayName: "CD: Staging"
+        dependsOn: CI_STAGING
+        condition: succeeded()
+        jobs:
+          - template: ./templates/_cd.yml
+            parameters:
+              environmentName: "Staging"
+              artefactDirectoryName: 'drop_staging'
+              deploymentToken: 'deployment_token_staging'
+
+      - stage: CI_PROD
+        displayName: "CI: Prod"
+        dependsOn: CD_STAGING
+        condition: succeeded()
+        jobs:
+          - template: ./templates/_ci.yml
+            parameters:
+              publishArtifacts: ${{ eq(variables['Build.SourceBranch'], 'refs/heads/develop') }}
+              artefactDirectoryName: 'drop_prod_iis'
+              apiUrl: 'https://appservice.af.com/api/'
+              swaggerOpenApiSpecUrl: 'https://appservice.af.com/swagger/v1/swagger.json'
+              reactEnvironment: 'production'
+              amplitudeApiKey: '$(amplitude-v3)'
+              packagePruneArguments: '--production'
+
+      - stage: CD_Production
+        displayName: "CD: Production"
+        dependsOn: CI_PROD
+        condition: succeeded()
+        jobs:
+          - template: ./templates/_cd_Prod.yml
+            parameters:
+              environmentName: "Production_Windows_Middleware_Server"
+              artefactDirectoryName: 'drop_prod_iis'
+
+      - stage: CI_Prod_Static_Web_App
+        displayName: "CI: Prod Static Web App"
+        dependsOn: CD_STAGING
+        condition: succeeded()
+        jobs:
+          - template: ./templates/_ci.yml
+            parameters:
+              publishArtifacts: ${{ eq(variables['Build.SourceBranch'], 'refs/heads/develop') }}
+              artefactDirectoryName: 'drop_prod_static_web_app'
+              apiUrl: 'https://api.af.com/api/'
+              swaggerOpenApiSpecUrl: 'https://api.af.com/swagger/v1/swagger.json'
+              reactEnvironment: 'production'
+              amplitudeApiKey: '$(amplitude-v3)'
+              packagePruneArguments: '--production'
+
+      - stage: CD_Prod_Static_Web_App
+        displayName: "CD: Prod Static Web App"
+        dependsOn: CI_Prod_Static_Web_App
+        condition: succeeded()
+        jobs:
+          - template: ./templates/_cd.yml
+            parameters:
+              environmentName: "Production"
+              artefactDirectoryName: 'drop_prod_static_web_app'
+              deploymentToken: 'deployment_token_prod'

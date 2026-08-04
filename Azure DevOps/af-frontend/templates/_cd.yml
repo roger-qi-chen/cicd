@@ -1,0 +1,45 @@
+parameters:
+  - name: environmentName
+    type: string
+  - name: artefactDirectoryName
+    type: string
+  - name: deploymentToken
+    type: string
+
+jobs:
+  - deployment: DeployJob
+    displayName: "Deploy to ${{ parameters.environmentName }}"
+    environment:
+      name: ${{ parameters.environmentName }}
+    variables:
+      - name: ARTIFACT_DIR
+        value: ${{ parameters.artefactDirectoryName }}
+      - name: DEPLOYMENT_TOKEN
+        value: ${{ parameters.deploymentToken }}
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - download: current
+              artifact: $(ARTIFACT_DIR)
+              displayName: "Download Build Artifact (drop)"
+
+            - script: |
+                ls "$(Pipeline.Workspace)/$(ARTIFACT_DIR)"
+              displayName: "Validate Deployment Artifacts exist"
+              condition: succeeded()
+
+            - task: ExtractFiles@1
+              inputs:
+                archiveFilePatterns: '$(Pipeline.Workspace)/$(ARTIFACT_DIR)/frontend.zip'
+                destinationFolder: '$(Build.SourcesDirectory)/build'
+                cleanDestinationFolder: true
+
+            - task: AzureStaticWebApp@0
+              inputs:
+                app_location: 'build'
+                api_location: 'api'
+                output_location: '/'
+                azure_static_web_apps_api_token: $(DEPLOYMENT_TOKEN)
+              displayName:  Deploy ${{ parameters.environmentName }}
+
