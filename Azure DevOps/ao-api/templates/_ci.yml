@@ -9,15 +9,15 @@ parameters:
   - name: acrServiceConnection
     type: string
     default: ""
-  
+
   - name: acrName
     type: string
     default: ""
-  
+
   - name: imageName
     type: string
     default: "aoapi"
-  
+
   - name: dockerfilePath
     type: string
     default: "$(Build.SourcesDirectory)/Dockerfile"
@@ -45,7 +45,7 @@ jobs:
       - task: DotNetCoreCLI@2
         inputs:
           command: 'restore'
-          projects: '$(System.DefaultWorkingDirectory)/AssetOperateAPI.sln'
+          projects: '$(System.DefaultWorkingDirectory)/AOAPI.sln'
           selectOrConfig: config
           feedsToUse: config
           nugetConfigPath: nuget.config
@@ -57,9 +57,9 @@ jobs:
         inputs:
           command: 'test'
           projects: |
-            test/AssetOperate.Api.Tests/AssetOperate.Api.Tests.csproj
-            test/AssetOperate.Domain.Tests/AssetOperate.Domain.Tests.csproj
-            test/AssetOperate.TenantOrchestrator.Tests/AssetOperate.TenantOrchestrator.Tests.csproj
+            test/AO.Api.Tests/AO.Api.Tests.csproj
+            test/AO.Domain.Tests/AO.Domain.Tests.csproj
+            test/AO.TenantOrchestrator.Tests/AO.TenantOrchestrator.Tests.csproj
           publishTestResults: false # Disable built-in test result publishing as we have a separate task for that and to avoid conflicts with --results-directory argument
           arguments: '--configuration $(buildConfiguration) --logger trx --results-directory $(Agent.TempDirectory)/TestResults -e AbnLookupService__ClientGuid="${{ parameters.abnLookupServiceClientGuid }}"'
         displayName: 'Run tests'
@@ -79,46 +79,46 @@ jobs:
         inputs:
           command: 'build'
           arguments: '--configuration $(buildConfiguration)'
-          workingDirectory: '$(System.DefaultWorkingDirectory)/src/AssetOperate.Api'
+          workingDirectory: '$(System.DefaultWorkingDirectory)/src/AO.Api'
         displayName: 'Build Api application'
         condition: succeeded()
 
       - ${{ if eq(parameters.publishArtifacts, true) }}:
-        - task: DotNetCoreCLI@2
-          displayName: 'Publish Api application'
-          inputs:
-            command: 'publish'
-            zipAfterPublish: true
-            workingDirectory: '$(System.DefaultWorkingDirectory)/src/AssetOperate.Api'
-            publishWebProjects: false
-            arguments: '-o $(Build.ArtifactStagingDirectory)/Api/AssetOperate.Api'
-          condition: succeeded()
+          - task: DotNetCoreCLI@2
+            displayName: 'Publish Api application'
+            inputs:
+              command: 'publish'
+              zipAfterPublish: true
+              workingDirectory: '$(System.DefaultWorkingDirectory)/src/AO.Api'
+              publishWebProjects: false
+              arguments: '-o $(Build.ArtifactStagingDirectory)/Api/AO.Api'
+            condition: succeeded()
 
-        - task: DotNetCoreCLI@2
-          displayName: 'Publish compliance tracking functions application'
-          inputs:
-            command: 'publish'
-            zipAfterPublish: true
-            workingDirectory: '$(System.DefaultWorkingDirectory)/src/AssetOperate.ComplianceTracker'
-            publishWebProjects: false
-            arguments: '-o $(Build.ArtifactStagingDirectory)/ComplianceTracker/AssetOperate.ComplianceTracker'
-          condition: succeeded()
+          - task: DotNetCoreCLI@2
+            displayName: 'Publish compliance tracking functions application'
+            inputs:
+              command: 'publish'
+              zipAfterPublish: true
+              workingDirectory: '$(System.DefaultWorkingDirectory)/src/AO.ComplianceTracker'
+              publishWebProjects: false
+              arguments: '-o $(Build.ArtifactStagingDirectory)/ComplianceTracker/AO.ComplianceTracker'
+            condition: succeeded()
 
-        - task: PublishPipelineArtifact@1
-          displayName: 'Publish Api Artifacts'
-          inputs:
-            targetPath: '$(Build.ArtifactStagingDirectory)/Api/AssetOperate.Api'
-            artifact: "${{ parameters.artefactDirectoryName }}-api"
-            publishLocation: 'pipeline'
-          condition: succeeded()
+          - task: PublishPipelineArtifact@1
+            displayName: 'Publish Api Artifacts'
+            inputs:
+              targetPath: '$(Build.ArtifactStagingDirectory)/Api/AO.Api'
+              artifact: "${{ parameters.artefactDirectoryName }}-api"
+              publishLocation: 'pipeline'
+            condition: succeeded()
 
-        - task: PublishPipelineArtifact@1
-          displayName: 'Publish Compliance Tracker Function Artifacts'
-          inputs:
-            targetPath: '$(Build.ArtifactStagingDirectory)/ComplianceTracker/AssetOperate.ComplianceTracker'
-            artifact: "${{ parameters.artefactDirectoryName }}-compliance-tracker-function"
-            publishLocation: 'pipeline'
-          condition: succeeded()
+          - task: PublishPipelineArtifact@1
+            displayName: 'Publish Compliance Tracker Function Artifacts'
+            inputs:
+              targetPath: '$(Build.ArtifactStagingDirectory)/ComplianceTracker/AO.ComplianceTracker'
+              artifact: "${{ parameters.artefactDirectoryName }}-compliance-tracker-function"
+              publishLocation: 'pipeline'
+            condition: succeeded()
 
   - job: DockerBuildAndPush
     displayName: "Build & Push Docker Image"
@@ -133,8 +133,8 @@ jobs:
       - task: NuGetAuthenticate@1
         displayName: 'Authenticate to Azure Artifacts'
         inputs:
-          feedsToAuthenticate: '$(System.TeamProject)/AssetFuture.Auth.Client' 
-
+          feedsToAuthenticate: '$(System.TeamProject)/af.Auth.Client'
+      
       # Login — registry URL is derived from the service connection itself
       - task: Docker@2
         displayName: "Login to ACR"

@@ -40,5 +40,5 @@ jobs:
                 ResourceGroupName: ${{ parameters.resourceGroupName }}
                 appName: ${{ parameters.FunctionAppName }}
                 appType: 'functionApp'
-                package: "$(Pipeline.Workspace)/${{ parameters.artefactDirectoryName }}/AssetOperate.*.zip"
+                package: "$(Pipeline.Workspace)/${{ parameters.artefactDirectoryName }}/AO.*.zip"
               condition: succeeded()

@@ -14,37 +14,66 @@ stages:
           publishArtifacts: ${{ startsWith(replace(variables['Build.SourceBranch'], 'refs/heads/', ''), 'hotfix/') }}
           artefactDirectoryName: 'drop-hotfix'
           acrServiceConnection: "azure-containers"
-          acrName: "assetfuture"
+          acrName: "af"
           imageName: "aoapi"
           dockerfilePath: "$(Build.SourcesDirectory)/Dockerfile"
           abnLookupServiceClientGuid: $(ABN_LOOKUP_SERVICE_CLIENT_GUID_DEV)
 
   - ${{ if startsWith(replace(variables['Build.SourceBranch'], 'refs/heads/', ''), 'hotfix/') }}:
-    - stage: CD_Production_FunctionApp_ComplianceTracker
-      displayName: "CD: Production Compliance Tracker Function App"
-      dependsOn: CI
-      condition: succeeded()
-      jobs:
-        - template: ./templates/_cd_function_app.yml
-          parameters:
-            environmentName: "Prod"
-            azureSubscription: 'AssetOperate Prod Connection AUE'
-            resourceGroupName: 'rg-ao-prod-aue'
-            artefactDirectoryName: 'drop-hotfix-compliance-tracker-function'
-            FunctionAppName: 'fn-ao-compliance-tracker-prod-aue'
+      - stage: CD_Staging_FunctionApp_ComplianceTracker
+        displayName: "CD: Staging Compliance Tracker Function App"
+        dependsOn: CI
+        condition: succeeded()
+        jobs:
+          - template: ./templates/_cd_function_app.yml
+            parameters:
+              environmentName: "Staging"
+              azureSubscription: 'AO Staging Connection AUE'
+              resourceGroupName: 'rg-ao-staging-aue'
+              artefactDirectoryName: 'drop-hotfix-compliance-tracker-function'
+              FunctionAppName: 'fn-ao-compliance-tracker-staging-aue'
 
-    - stage: CD_Prod_ContainerApp
-      displayName: "CD: Prod Contianer App"
-      dependsOn: CI
-      condition: succeeded()
-      jobs:
-        - template: ./templates/_cd_container_app.yml
-          parameters:
-            environmentName: "Prod"
-            azureSubscriptionServiceConnection: 'AssetOperate Prod Connection AUE'
-            acrName: "assetfuture"
-            imageName: "aoapi"
-            resourceGroupName: "rg-app-prod-aue"
-            containerAppEnvironment: "cae-prod-aue"
-            containerAppName: "aca-ao-api-prod-aue"
-            acrServiceConnection: "azure-containers"
+      - stage: CD_Staging_ContainerApp
+        displayName: "CD: Staging Contianer App"
+        dependsOn: CI
+        condition: succeeded()
+        jobs:
+          - template: ./templates/_cd_container_app.yml
+            parameters:
+              environmentName: "Staging"
+              azureSubscriptionServiceConnection: 'AO Staging Connection AUE'
+              acrName: "af"
+              imageName: "aoapi"
+              resourceGroupName: "rg-app-staging-aue"
+              containerAppEnvironment: "cae-staging-aue"
+              containerAppName: "aca-ao-api-staging-aue"
+              acrServiceConnection: "azure-containers"
+
+      - stage: CD_Production_FunctionApp_ComplianceTracker
+        displayName: "CD: Production Compliance Tracker Function App"
+        dependsOn: CD_Staging_FunctionApp_ComplianceTracker
+        condition: succeeded()
+        jobs:
+          - template: ./templates/_cd_function_app.yml
+            parameters:
+              environmentName: "Prod"
+              azureSubscription: 'AO Prod Connection AUE'
+              resourceGroupName: 'rg-ao-prod-aue'
+              artefactDirectoryName: 'drop-hotfix-compliance-tracker-function'
+              FunctionAppName: 'fn-ao-compliance-tracker-prod-aue'
+
+      - stage: CD_Prod_ContainerApp
+        displayName: "CD: Prod Contianer App"
+        dependsOn: CD_Staging_ContainerApp
+        condition: succeeded()
+        jobs:
+          - template: ./templates/_cd_container_app.yml
+            parameters:
+              environmentName: "Prod"
+              azureSubscriptionServiceConnection: 'AO Prod Connection AUE'
+              acrName: "af"
+              imageName: "aoapi"
+              resourceGroupName: "rg-app-prod-aue"
+              containerAppEnvironment: "cae-prod-aue"
+              containerAppName: "aca-ao-api-prod-aue"
+              acrServiceConnection: "azure-containers"
