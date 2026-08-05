@@ -1,0 +1,50 @@
+trigger: none
+
+name: $(date:yyyyMMdd)$(rev:.r)
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+  - stage: CI
+    displayName: "CI"
+    jobs:
+      - template: ./templates/_ci.yml
+        parameters:
+          publishArtifacts: ${{ startsWith(replace(variables['Build.SourceBranch'], 'refs/heads/', ''), 'hotfix/') }}
+          artefactDirectoryName: 'drop-hotfix'
+          acrServiceConnection: "azure-containers"
+          acrName: "assetfuture"
+          imageName: "aoapi"
+          dockerfilePath: "$(Build.SourcesDirectory)/Dockerfile"
+          abnLookupServiceClientGuid: $(ABN_LOOKUP_SERVICE_CLIENT_GUID_DEV)
+
+  - ${{ if startsWith(replace(variables['Build.SourceBranch'], 'refs/heads/', ''), 'hotfix/') }}:
+    - stage: CD_Production_FunctionApp_ComplianceTracker
+      displayName: "CD: Production Compliance Tracker Function App"
+      dependsOn: CI
+      condition: succeeded()
+      jobs:
+        - template: ./templates/_cd_function_app.yml
+          parameters:
+            environmentName: "Prod"
+            azureSubscription: 'AssetOperate Prod Connection AUE'
+            resourceGroupName: 'rg-ao-prod-aue'
+            artefactDirectoryName: 'drop-hotfix-compliance-tracker-function'
+            FunctionAppName: 'fn-ao-compliance-tracker-prod-aue'
+
+    - stage: CD_Prod_ContainerApp
+      displayName: "CD: Prod Contianer App"
+      dependsOn: CI
+      condition: succeeded()
+      jobs:
+        - template: ./templates/_cd_container_app.yml
+          parameters:
+            environmentName: "Prod"
+            azureSubscriptionServiceConnection: 'AssetOperate Prod Connection AUE'
+            acrName: "assetfuture"
+            imageName: "aoapi"
+            resourceGroupName: "rg-app-prod-aue"
+            containerAppEnvironment: "cae-prod-aue"
+            containerAppName: "aca-ao-api-prod-aue"
+            acrServiceConnection: "azure-containers"

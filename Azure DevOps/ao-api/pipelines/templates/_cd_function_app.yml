@@ -1,0 +1,44 @@
+parameters:
+  - name: environmentName
+    type: string
+
+  - name: azureSubscription
+    type: string
+
+  - name: resourceGroupName
+    type: string
+
+  - name: artefactDirectoryName
+    type: string
+
+  - name: FunctionAppName
+    type: string
+    default: ''
+
+jobs:
+  - deployment: DeployToFunctionApp
+    displayName: "Deploy to ${{ parameters.environmentName }}"
+    environment: ${{ parameters.environmentName }}
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            - download: current
+              artifact: "${{ parameters.artefactDirectoryName }}"
+              displayName: "Download Build Artifact (drop)"
+              condition: succeeded()
+
+            - script: |
+                ls -R "$(Pipeline.Workspace)/${{ parameters.artefactDirectoryName }}"
+              displayName: "Validate Deployment Artifacts exist"
+              condition: succeeded()
+
+            - task: AzureFunctionApp@1
+              displayName: 'Deploy Compliance Tracker Function App'
+              inputs:
+                azureSubscription: ${{ parameters.azureSubscription }}
+                ResourceGroupName: ${{ parameters.resourceGroupName }}
+                appName: ${{ parameters.FunctionAppName }}
+                appType: 'functionApp'
+                package: "$(Pipeline.Workspace)/${{ parameters.artefactDirectoryName }}/AssetOperate.*.zip"
+              condition: succeeded()

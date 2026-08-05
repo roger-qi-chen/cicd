@@ -1,0 +1,53 @@
+trigger:
+  branches:
+    include:
+      - develop
+
+name: $(date:yyyyMMdd)$(rev:.r)
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+stages:
+  - stage: CI
+    displayName: "CI"
+    jobs:
+      - template: ./templates/_ci.yml
+        parameters:
+          publishArtifacts: ${{ eq(variables['Build.SourceBranch'], 'refs/heads/develop') }}
+          artefactDirectoryName: 'drop-dev'
+          acrServiceConnection: "azure-containers"
+          acrName: "assetfuture"
+          imageName: "aoapi"
+          dockerfilePath: "$(Build.SourcesDirectory)/Dockerfile"
+          abnLookupServiceClientGuid: $(ABN_LOOKUP_SERVICE_CLIENT_GUID_DEV)
+
+  - ${{ if eq(variables['Build.SourceBranch'], 'refs/heads/develop') }}:
+      - stage: CD_Dev_FunctionApp_ComplianceTracker
+        displayName: "CD: Dev Compliance Tracker Function App"
+        dependsOn: CI
+        condition: succeeded()
+        jobs:
+          - template: ./templates/_cd_function_app.yml
+            parameters:
+              environmentName: "Dev"
+              azureSubscription: 'AssetOperate Dev Connection AUE'
+              resourceGroupName: 'rg-ao-dev-aue'
+              artefactDirectoryName: 'drop-dev-compliance-tracker-function'
+              FunctionAppName: 'fn-ao-compliance-tracker-dev-aue'
+
+      - stage: CD_Dev_ContainerApp
+        displayName: "CD: Dev Container App"
+        dependsOn: CI
+        condition: succeeded()
+        jobs:
+          - template: ./templates/_cd_container_app.yml
+            parameters:
+              environmentName: "Dev"
+              azureSubscriptionServiceConnection: 'AssetOperate Dev Connection AUE'
+              acrName: "assetfuture"
+              imageName: "aoapi"
+              resourceGroupName: "rg-app-dev-aue"
+              containerAppEnvironment: "cae-dev-aue"
+              containerAppName: "aca-ao-api-dev-aue"
+              acrServiceConnection: "azure-containers"

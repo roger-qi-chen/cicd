@@ -1,0 +1,177 @@
+parameters:
+  - name: publishArtifacts
+    type: boolean
+    default: false
+
+  - name: artefactDirectoryName
+    type: string
+
+  - name: acrServiceConnection
+    type: string
+    default: ""
+  
+  - name: acrName
+    type: string
+    default: ""
+  
+  - name: imageName
+    type: string
+    default: "aoapi"
+  
+  - name: dockerfilePath
+    type: string
+    default: "$(Build.SourcesDirectory)/Dockerfile"
+
+  - name: abnLookupServiceClientGuid
+    type: string
+
+jobs:
+  - job: Build
+    ${{ if eq(parameters.publishArtifacts, true) }}:
+      displayName: 'Build and Publish'
+    ${{ if not(eq(parameters.publishArtifacts, true)) }}:
+      displayName: 'Build'
+    steps:
+      - task: UseDotNet@2
+        inputs:
+          packageType: 'sdk'
+          version: '10.x'  # Update with desired .NET 8 version
+        displayName: 'Use .NET 10'
+        condition: succeeded()
+
+      - task: NuGetAuthenticate@1
+        displayName: 'Authenticate to Azure Artifacts'
+
+      - task: DotNetCoreCLI@2
+        inputs:
+          command: 'restore'
+          projects: '$(System.DefaultWorkingDirectory)/AssetOperateAPI.sln'
+          selectOrConfig: config
+          feedsToUse: config
+          nugetConfigPath: nuget.config
+        displayName: 'Restore Api packages'
+        condition: succeeded()
+
+      # Run tests before any build, as the build is limited to the API project only.
+      - task: DotNetCoreCLI@2
+        inputs:
+          command: 'test'
+          projects: |
+            test/AssetOperate.Api.Tests/AssetOperate.Api.Tests.csproj
+            test/AssetOperate.Domain.Tests/AssetOperate.Domain.Tests.csproj
+            test/AssetOperate.TenantOrchestrator.Tests/AssetOperate.TenantOrchestrator.Tests.csproj
+          publishTestResults: false # Disable built-in test result publishing as we have a separate task for that and to avoid conflicts with --results-directory argument
+          arguments: '--configuration $(buildConfiguration) --logger trx --results-directory $(Agent.TempDirectory)/TestResults -e AbnLookupService__ClientGuid="${{ parameters.abnLookupServiceClientGuid }}"'
+        displayName: 'Run tests'
+        condition: succeeded()
+
+      - task: PublishTestResults@2
+        displayName: 'Publish Test Results'
+        inputs:
+          testResultsFormat: 'VSTest'
+          testResultsFiles: '$(Agent.TempDirectory)/TestResults/**/*.trx'
+          mergeTestResults: true
+          failTaskOnFailedTests: true
+        condition: always()
+
+      # If the tests run successfully, now build and publish the API project.
+      - task: DotNetCoreCLI@2
+        inputs:
+          command: 'build'
+          arguments: '--configuration $(buildConfiguration)'
+          workingDirectory: '$(System.DefaultWorkingDirectory)/src/AssetOperate.Api'
+        displayName: 'Build Api application'
+        condition: succeeded()
+
+      - ${{ if eq(parameters.publishArtifacts, true) }}:
+        - task: DotNetCoreCLI@2
+          displayName: 'Publish Api application'
+          inputs:
+            command: 'publish'
+            zipAfterPublish: true
+            workingDirectory: '$(System.DefaultWorkingDirectory)/src/AssetOperate.Api'
+            publishWebProjects: false
+            arguments: '-o $(Build.ArtifactStagingDirectory)/Api/AssetOperate.Api'
+          condition: succeeded()
+
+        - task: DotNetCoreCLI@2
+          displayName: 'Publish compliance tracking functions application'
+          inputs:
+            command: 'publish'
+            zipAfterPublish: true
+            workingDirectory: '$(System.DefaultWorkingDirectory)/src/AssetOperate.ComplianceTracker'
+            publishWebProjects: false
+            arguments: '-o $(Build.ArtifactStagingDirectory)/ComplianceTracker/AssetOperate.ComplianceTracker'
+          condition: succeeded()
+
+        - task: PublishPipelineArtifact@1
+          displayName: 'Publish Api Artifacts'
+          inputs:
+            targetPath: '$(Build.ArtifactStagingDirectory)/Api/AssetOperate.Api'
+            artifact: "${{ parameters.artefactDirectoryName }}-api"
+            publishLocation: 'pipeline'
+          condition: succeeded()
+
+        - task: PublishPipelineArtifact@1
+          displayName: 'Publish Compliance Tracker Function Artifacts'
+          inputs:
+            targetPath: '$(Build.ArtifactStagingDirectory)/ComplianceTracker/AssetOperate.ComplianceTracker'
+            artifact: "${{ parameters.artefactDirectoryName }}-compliance-tracker-function"
+            publishLocation: 'pipeline'
+          condition: succeeded()
+
+  - job: DockerBuildAndPush
+    displayName: "Build & Push Docker Image"
+    dependsOn: Build
+    condition: and(succeeded('Build'), eq('${{ parameters.publishArtifacts }}', 'true'))
+    pool:
+      vmImage: "ubuntu-latest"
+    steps:
+      - checkout: self
+        fetchDepth: 0
+
+      - task: NuGetAuthenticate@1
+        displayName: 'Authenticate to Azure Artifacts'
+        inputs:
+          feedsToAuthenticate: '$(System.TeamProject)/AssetFuture.Auth.Client' 
+
+      # Login — registry URL is derived from the service connection itself
+      - task: Docker@2
+        displayName: "Login to ACR"
+        inputs:
+          command: login
+          containerRegistry: ${{ parameters.acrServiceConnection }}
+
+      # Build
+      - task: Docker@2
+        displayName: "Build Docker Image"
+        inputs:
+          command: build
+          containerRegistry: ${{ parameters.acrServiceConnection }}
+          repository: ${{ parameters.imageName }}
+          tags: |
+            $(Build.BuildId)
+            latest
+          dockerfilePath: ${{ parameters.dockerfilePath }}
+          buildContext: "$(Build.SourcesDirectory)"
+          arguments: |
+            --build-arg AZURE_ARTIFACTS_FEEDUSERID=az
+            --build-arg AZURE_ARTIFACTS_FEEDPASSWORD=$(System.AccessToken)
+
+      # Push
+      - task: Docker@2
+        displayName: "Push Docker Image to ACR"
+        inputs:
+          command: push
+          containerRegistry: ${{ parameters.acrServiceConnection }}
+          repository: ${{ parameters.imageName }}
+          tags: |
+            $(Build.BuildId)
+            latest
+
+      # Logout to clean up credentials on the agent
+      - task: Docker@2
+        displayName: "Logout from ACR"
+        inputs:
+          command: logout
+          containerRegistry: ${{ parameters.acrServiceConnection }}

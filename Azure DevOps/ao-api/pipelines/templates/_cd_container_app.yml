@@ -1,0 +1,54 @@
+parameters:
+  - name: environmentName
+    type: string
+
+  - name: azureSubscriptionServiceConnection
+    type: string
+
+  - name: acrName
+    type: string
+
+  - name: imageName
+    type: string
+    default: "aoapi"
+
+  - name: resourceGroupName
+    type: string
+
+  - name: containerAppName
+    type: string
+
+  - name: containerAppEnvironment
+    type: string
+
+  - name: acrServiceConnection
+    type: string
+    default: ""
+
+jobs:
+  - deployment: DeployToContainerApp
+    displayName: "Deploy to ${{ parameters.environmentName }}"
+    condition: succeeded()
+    environment: ${{ parameters.environmentName }}
+    pool:
+      vmImage: "ubuntu-latest"
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+            # Login — registry URL is derived from the service connection itself
+            - task: Docker@2
+              displayName: "Login to ACR"
+              inputs:
+                command: login
+                containerRegistry: ${{ parameters.acrServiceConnection }}
+
+            - task: AzureContainerApps@1
+              displayName: "Deploy Image to Azure Container App"
+              inputs:
+                azureSubscription: ${{ parameters.azureSubscriptionServiceConnection }}
+                acrName: ${{ parameters.acrName }}
+                imageToDeploy: "${{ parameters.acrName }}.azurecr.io/${{ parameters.imageName }}:$(Build.BuildId)"
+                containerAppName: ${{ parameters.containerAppName }}
+                resourceGroup: ${{ parameters.resourceGroupName }}
+                containerAppEnvironment: ${{ parameters.containerAppEnvironment }}
